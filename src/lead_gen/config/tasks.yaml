@@ -1,0 +1,199 @@
+scan_papers_for_signals:
+  description: >
+    Search Europe PMC for recent bio/neuroscience papers from European labs that
+    reveal technical pain in their methods sections. Run all five pain query types:
+    ram_limitation, manual_scripts, long_processing, pipeline_bottleneck, no_automation.
+    For each query, call europe_pmc_search with max_results=3.
+    For papers that have has_fulltext=true and look promising, call europe_pmc_fulltext
+    to get the methods section and find the exact pain sentence.
+    Then call openalex_work_search with the paper DOI to confirm European authorship
+    (has_european_author=true) and get the first author's openalex_id.
+    Only include papers where European authorship is confirmed.
+    
+    CRITICAL NO-HALLUCINATION RULE: ONLY use paper_id and doi values returned by search tools. 
+    DO NOT invent, assume, or retry generic/fake IDs like 'PMC1234567'.
+    CRITICAL SKIP RULE: If europe_pmc_fulltext returns an error (e.g. not open access), 
+    you MUST immediately MOVE ON to the next paper. NEVER call any tool for that 
+    paper ID again.
+
+    Return a JSON array where each item has:
+    - paper_id, doi, title, journal, pub_date
+    - author_string (from Europe PMC)
+    - first_author_openalex_id (from OpenAlex work search)
+    - pain_type (which query matched)
+    - pain_keywords_found (list of specific words that triggered the match)
+    - raw_evidence (the exact sentence or abstract snippet showing the pain)
+    - confidence (0.0-1.0: how clearly does this reveal a technical problem?)
+  expected_output: >
+    A valid JSON array of paper signal objects. Maximum 25 items.
+    Each item must have all fields listed above. confidence must be a float.
+    Only include papers with confidence >= 0.4.
+    Return ONLY the raw JSON data, no explanations or code.
+
+scan_infrastructure_signals:
+  description: >
+    Find European bio/neuro labs with infrastructure gaps through three channels.
+
+    1. CORDIS: Call cordis_project_search with these keywords (one call each):
+       - "computational neuroscience data pipeline"
+       - "genomics bioinformatics software"
+       Keep only SIGNED or ACTIVE projects with software_keyword_count >= 2.
+
+    2. EURAXESS: Call euraxess_job_search with these keywords (one call each):
+       - "bioinformatics engineer"
+       - "research software engineer"
+       Keep only jobs with at least 2 tech_signals.
+
+    3. GitHub: Call github_lab_search with these queries (one call each):
+       - "topic:bioinformatics language:python stars:1..50", max_results=5
+       - "topic:neuroscience language:python stars:1..30", max_results=5
+       Keep only repos with tech_debt_score >= 4.
+
+    Return a JSON array where each item has:
+    - source ("cordis" | "euraxess" | "github")
+    - institution_name (best guess from the data)
+    - country (ISO 2-letter if available, else "")
+    - signal_type ("hiring_tech_role" | "active_eu_grant" | "tech_debt_repo")
+    - evidence (title, job post title, or repo name)
+    - detail (objective snippet, job description snippet, or tech_debt_signals list)
+    - raw_url (link to the source)
+  expected_output: >
+    A valid JSON array of infrastructure signal objects. Maximum 30 items.
+    Each item must have all fields above. Merge duplicate entries for the same institution.
+    Return ONLY the raw JSON data, no explanations or code.
+
+enrich_lab_profiles:
+  description: >
+    Process the following raw signals to build complete lab profiles:
+    Paper Signals: {paper_signals}
+    Infrastructure Signals: {infra_signals}
+    
+    For each unique lab/PI combination, build a complete profile using OpenAlex.
+
+    For each paper signal with a first_author_openalex_id:
+    1. Call openalex_author_lookup with the openalex_id to get the full PI profile.
+    2. If the author's institution_openalex_id is available, call openalex_institution_lookup
+       to get institution details (city, type, ROR).
+    3. Call deduplication_check with the institution_name, country, pi_name, and new_score=0.
+       If should_include=false, skip this lab entirely.
+
+    For infrastructure signals without an openalex_id:
+    - Call openalex_author_lookup with the PI name if known, else skip the author lookup.
+    - Call openalex_institution_lookup with the institution_name to confirm it is European.
+      If openalex_institution_lookup returns an error (institution not found), DO NOT drop
+      the lead. Private companies (names ending in SL, GmbH, SARL, Ltd, BV, SpA, AB, AS,
+      ApS, Srl, etc.) are not indexed in OpenAlex — that is expected and normal.
+      In that case, infer the country from: (1) the signal's country field, (2) the
+      company name suffix (e.g. "Barcelona" → ES, "GmbH" → DE), or (3) the CORDIS/
+      EURAXESS source data. If country can be inferred as European, keep the lead and
+      set city/type fields to null.
+    - Call deduplication_check before including.
+
+    Merge entries that refer to the same PI (same openalex_id or same name + institution).
+
+    Return a JSON array of lab profiles where each item has:
+    - institution_name, department (if known), country, city
+    - pi_name, pi_openalex_id, pi_orcid, pi_h_index, pi_topics (list)
+    - pi_recent_works_count
+    - github_org (if found from infrastructure signals)
+    - active_eu_grants (list of CORDIS project IDs or grant names)
+    - has_sensitive_data (true if genomics/patient data mentioned)
+    - hiring_signals (list of job titles from EURAXESS)
+    - source_paper_ids (list of paper_ids that led to this lab)
+    - source_signals (list of infrastructure signal types)
+  expected_output: >
+    A valid JSON array of lab profile objects. No duplicates.
+    Only include labs where country is a European country code.
+    Maximum 40 lab profiles.
+    Return ONLY the raw JSON data, no explanations or code.
+
+qualify_and_rank_leads:
+  description: >
+    Score and rank the following lab profiles:
+    Lab Profiles: {lab_profiles}
+    
+    For each lab profile, assign scores on a 0-10 scale:
+
+    pain_intensity (weight 0.35):
+    - 9-10: Explicit quote about processing taking days/weeks, RAM crashes, or manual steps on TB+ data
+    - 7-8: Methods mention bottlenecks or limitations with specific numbers
+    - 5-6: Abstract hints at computational challenges
+    - 3-4: Indirect signals (job posting for tech role, CORDIS grant only)
+    - 1-2: Weak or speculative signals
+
+    budget_signal (weight 0.25):
+    - 9-10: Active ERC grant (Consolidator, Advanced, or Starting) or Horizon Europe project
+    - 7-8: National grant (ANR, DFG, etc.) or industry collaboration
+    - 5-6: Institutional funding signals
+    - 3-4: No clear funding info but established institution
+    - 1-2: Small or unfunded lab
+
+    timing_signal (weight 0.20):
+    - 9-10: Paper published in last 4 weeks OR active job posting
+    - 7-8: Paper from last 3 months
+    - 5-6: Paper from last 6 months
+    - 3-4: Older signals
+
+    fit_score (weight 0.20) — how well does CodingResearcher.com match?
+    - 9-10: Lab needs refactoring of existing messy codebase (codebase_organization)
+    - 8-9: Lab needs a new analysis pipeline (projects_development)
+    - 6-7: Lab needs code reviews and guidance (lab_support)
+    - 3-5: Lab might benefit from mentoring
+    - 1-2: Needs HPC admin, DevOps, or non-Python work
+
+    Compute total = 0.35*pain + 0.25*budget + 0.20*timing + 0.20*fit.
+    Assign service_match based on the highest fit area.
+    Sort by total score descending. Keep top 20. Assign rank 1..20.
+
+    Return a JSON array where each item extends the lab profile with:
+    - lead_id (generate a short unique ID: prefix "lead-" + zero-padded rank + "-" + a slug of the institution name, e.g. "lead-01-max-planck-neuroscience")
+    - rank (1-20)
+    - pain_points (list of PainPointType values: ram_limitation, manual_scripts, etc.)
+    - service_match (projects_development | lab_support | codebase_organization | mentoring)
+    - score object: {pain_intensity, budget_signal, timing_signal, fit_score, total,
+                     pain_justification, budget_justification, timing_justification, fit_justification}
+    - evidence_sources (list of paper IDs, CORDIS IDs, GitHub URLs)
+    - raw_evidence_snippets (list of exact quotes from source material)
+  expected_output: >
+    A valid JSON array of 20 ranked lead objects with all fields above.
+    Scores must be floats. total must equal the weighted sum. Justifications must be strings.
+    Return ONLY the raw JSON data, no explanations or code.
+
+write_outreach_angles:
+  description: >
+    Write personalized outreach packages for these top-ranked leads:
+    Leads: {ranked_leads}
+    
+    For each lead, write a personalized outreach package:
+
+    hook: One sentence that opens with something specific from their work.
+    Example: "I came across your recent paper on calcium imaging and the RAM limitation
+    you described when processing each recording session individually."
+    Never start with "I noticed" — be more specific.
+
+    service_pitch: One sentence explaining which CodingResearcher.com service fits.
+    Map service_match to:
+    - codebase_organization → "A codebase organization session could restructure your
+      [specific tool/pipeline name] to [specific fix]."
+    - projects_development → "I could build you a [specific pipeline type] that handles
+      [specific data type] without the [specific bottleneck]."
+    - lab_support → "A code review of your [repo/pipeline] would surface the key
+      bottlenecks and give your team a clear refactoring roadmap."
+    - mentoring → "I run mentoring sessions for research teams on exactly this —
+      moving from notebook prototypes to production Python."
+
+    free_audit_offer: One sentence offering the free codebase audit.
+    Always specific: mention what you would look at (the repo, the pipeline, the scripts).
+
+    email_draft: A complete cold email combining hook + pitch + audit offer.
+    Rules: under 150 words. Signed "Marine, CodingResearcher.com".
+    No corporate jargon. No "I hope this email finds you well".
+    Reference at least one specific detail (paper title, grant name, tool name, or dataset).
+
+    Return a JSON array where each item is the full lead object with an added
+    "outreach" field containing: {hook, service_pitch, free_audit_offer, email_draft}.
+  expected_output: >
+    A valid JSON array of the top 20 lead objects, each with the outreach field populated.
+    email_draft must be under 150 words. All outreach fields must be non-empty strings.
+    The email must reference at least one specific detail from the lead's research.
+    Return ONLY the raw JSON data, no explanations or code.

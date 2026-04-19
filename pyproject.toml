@@ -1,0 +1,30 @@
+[project]
+name = "lead-generation-codingresearcher"
+version = "0.1.0"
+description = "Automated lead generation for CodingResearcher.com targeting bio/neuro research labs"
+requires-python = ">=3.13"
+dependencies = [
+    "crewai[litellm,tools]>=0.130.0",
+    "httpx>=0.28.0",
+    "selectolax>=0.3.26",
+    "pydantic>=2.11.0",
+    "pydantic-settings>=2.9.0",
+    "thefuzz>=0.22.1",
+    "python-levenshtein>=0.27.1",
+]
+
+[project.scripts]
+lead-gen = "lead_gen.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lead_gen"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.25.0",
+]

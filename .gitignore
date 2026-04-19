@@ -1,0 +1,25 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Secrets
+.env
+
+# UV
+.python-version
+
+# Data (leads and cache contain potentially sensitive PI contact info)
+data/leads/*.json
+data/cache/
+data/seen_ids.json
+
+# Keep directory structure
+!data/leads/.gitkeep
+!data/cache/.gitkeep
