@@ -38,7 +38,7 @@ def test_build_contact_index_routes_preprints():
 
 # --- Grant code-need classification ---------------------------------------
 
-def test_software_deliverable_grant_is_capability():
+def test_software_deliverable_grant_classified():
     text = "This project will develop open-source software infrastructure for genomics."
     assert cordis_tool._classify_software_role(text) == "deliverable"
 
@@ -56,24 +56,33 @@ def test_no_software_role():
     assert cordis_tool._classify_software_role(text) == "none"
 
 
-def test_capability_grant_downranks_lead():
-    leads = [{
-        "lead_id": "cap",
+def test_software_grant_is_weak_positive_not_penalty():
+    """A grant earmarked for software lifts a low budget score, never penalizes."""
+    lead = {
+        "lead_id": "sw",
         "has_contact": True,
         "evidence_verified": True,
-        "grant_capability": True,
-        "score": {"pain_intensity": 5, "budget_signal": 5,
+        "has_software_grant": True,
+        "score": {"pain_intensity": 5, "budget_signal": 2,
                   "timing_signal": 5, "fit_score": 5},
-    }, {
-        "lead_id": "need",
-        "has_contact": True,
-        "evidence_verified": True,
-        "grant_capability": False,
-        "score": {"pain_intensity": 5, "budget_signal": 5,
-                  "timing_signal": 5, "fit_score": 5},
-    }]
+    }
+    out = verification.enforce_scores([lead])
+    # budget floored up to the software-grant floor, not multiplied down
+    assert out[0]["score"]["budget_signal"] == settings.software_grant_budget_floor
+    assert not any("down-rank" in n for n in out[0]["verification_notes"])
+
+
+def test_software_grant_does_not_lower_a_lead():
+    """Two identical leads; the one with a software grant must not rank lower."""
+    leads = [
+        {"lead_id": "plain", "has_contact": True, "evidence_verified": True,
+         "score": {"pain_intensity": 8, "budget_signal": 8,
+                   "timing_signal": 8, "fit_score": 8}},
+        {"lead_id": "sw", "has_contact": True, "evidence_verified": True,
+         "has_software_grant": True,
+         "score": {"pain_intensity": 8, "budget_signal": 8,
+                   "timing_signal": 8, "fit_score": 8}},
+    ]
     out = verification.enforce_scores(leads)
-    # Same raw scores; the lab already funded for software must rank lower
-    assert out[0]["lead_id"] == "need"
-    assert out[1]["lead_id"] == "cap"
-    assert out[1]["score"]["total"] == round(5 * settings.software_grant_capability_multiplier, 2)
+    totals = {l["lead_id"]: l["score"]["total"] for l in out}
+    assert totals["sw"] >= totals["plain"]

@@ -61,9 +61,11 @@ _SOFTWARE_KEYWORDS = [
     "code",
 ]
 
-# When software IS the funded deliverable, the lab is already funded (and
-# usually staffed) to build it — a capability marker, not a need. These grants
-# should be down-ranked, mirroring the "they already have a JOSS paper" logic.
+# When software IS the funded deliverable, the grant is money earmarked for
+# exactly the kind of work Marine does. It is a weak-positive budget signal —
+# NOT proof the lab has an engineer on staff (they may have won funding and
+# still need to hire or contract someone). Distinct from "means" grants, where
+# software is needed to reach a science goal (budget + acute need).
 _SOFTWARE_DELIVERABLE_MARKERS = [
     "open-source software",
     "open source software",
@@ -82,9 +84,10 @@ _SOFTWARE_DELIVERABLE_MARKERS = [
 
 def _classify_software_role(text: str) -> str:
     """
-    Distinguish grants where software is the DELIVERABLE (capability — the lab
-    is funded to build it) from grants where software is a MEANS to a science
-    aim (need — budget exists, but no dedicated engineering line).
+    Distinguish grants where software is the DELIVERABLE (money earmarked for
+    software — a weak-positive budget signal, not proof of an in-house engineer)
+    from grants where software is a MEANS to a science aim (strong signal —
+    budget exists and there is acute need but no dedicated engineering line).
 
     Returns "deliverable" | "means" | "none".
     """
@@ -328,9 +331,10 @@ class CORDISProjectSearchTool(BaseTool):
         "acronym, programme, start_date, end_date, status, coordinator_name, "
         "coordinator_country, coordinator_email, total_cost, objective_snippet, "
         "software_keyword_count, software_role ('deliverable' = grant funds "
-        "software so the lab is likely already staffed; 'means' = software "
-        "needed for a science goal, budget but no engineer — the stronger lead; "
-        "'none'), is_active). Only ACTIVE projects are included. "
+        "software — money earmarked for this kind of work, a weak-positive "
+        "signal; 'means' = software needed to reach a science goal, budget but "
+        "no dedicated engineer — the stronger lead; 'none'), is_active). "
+        "Only ACTIVE projects are included. "
         "Use PREDEFINED_QUERIES from cordis_tool for ready-made query strings."
     )
     args_schema: Type[BaseModel] = CORDISSearchInput

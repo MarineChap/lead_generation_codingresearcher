@@ -160,6 +160,12 @@ def enforce_scores(leads: list[dict]) -> list[dict]:
             budget = settings.recent_grant_budget_floor
             notes.append("budget floor applied: recently signed EU grant")
 
+        # A grant earmarked for software is money for exactly Marine's work —
+        # a weak-positive budget signal (not proof they have an RSE in-house)
+        if lead.get("has_software_grant") and budget < settings.software_grant_budget_floor:
+            budget = settings.software_grant_budget_floor
+            notes.append("budget floor applied: grant earmarked for software work")
+
         total = (
             settings.weight_pain * pain
             + settings.weight_budget * budget
@@ -167,11 +173,6 @@ def enforce_scores(leads: list[dict]) -> list[dict]:
             + settings.weight_fit * fit
         )
 
-        if lead.get("grant_capability"):
-            total *= settings.software_grant_capability_multiplier
-            notes.append(
-                "lab already funded to build software (capability, not need) — down-ranked"
-            )
         if not lead.get("has_contact"):
             total *= settings.no_contact_score_multiplier
             notes.append("no direct contact found — down-ranked")

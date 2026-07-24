@@ -41,7 +41,7 @@ def apply_deterministic_finalization(
     contact_index: dict,
     verified_evidence_index: dict,
     grant_dates_index: dict,
-    grant_capability_index: set | None = None,
+    software_grant_index: set | None = None,
 ) -> list:
     """
     The code-owned pass between qualification and outreach:
@@ -51,7 +51,7 @@ def apply_deterministic_finalization(
     - build reason_for_need from verified facts only
     - drop suppressed (opted-out) contacts
     """
-    grant_capability_index = grant_capability_index or set()
+    software_grant_index = software_grant_index or set()
     for lead in ranked_leads:
         # --- contacts ---
         lead_contacts = contacts_mod.contacts_for_lead(lead, contact_index)
@@ -79,7 +79,7 @@ def apply_deterministic_finalization(
         # --- fresh-grant timing data for score enforcement ---
         inst_key = contacts_mod.norm_institution(lead.get("institution_name", ""))
         lead["grant_start_dates"] = grant_dates_index.get(inst_key, [])
-        lead["grant_capability"] = inst_key in grant_capability_index
+        lead["has_software_grant"] = inst_key in software_grant_index
 
     ranked_leads = verification.enforce_scores(ranked_leads)
 
@@ -150,9 +150,9 @@ class LeadGenFlow(Flow):
         }
 
         # CORDIS grant metadata by institution: fresh start dates (budget +
-        # timing signal) and software-deliverable grants (capability marker)
+        # timing signal) and software-earmarked grants (weak-positive budget)
         grant_dates_index: dict[str, list] = {}
-        grant_capability_index: set[str] = set()
+        software_grant_index: set[str] = set()
         for signal in infra_signals:
             if signal.get("source") != "cordis":
                 continue
@@ -162,7 +162,7 @@ class LeadGenFlow(Flow):
             if signal.get("start_date"):
                 grant_dates_index.setdefault(key, []).append(signal["start_date"])
             if signal.get("software_role") == "deliverable":
-                grant_capability_index.add(key)
+                software_grant_index.add(key)
 
         return {
             "paper_signals": kept,
@@ -170,7 +170,7 @@ class LeadGenFlow(Flow):
             "contact_index": contact_index,
             "verified_evidence_index": verified_evidence_index,
             "grant_dates_index": grant_dates_index,
-            "grant_capability_index": grant_capability_index,
+            "software_grant_index": software_grant_index,
             "diagnostics": diagnostics,
         }
 
@@ -205,7 +205,7 @@ class LeadGenFlow(Flow):
             contact_index=state["contact_index"],
             verified_evidence_index=state["verified_evidence_index"],
             grant_dates_index=state["grant_dates_index"],
-            grant_capability_index=state.get("grant_capability_index", set()),
+            software_grant_index=state.get("software_grant_index", set()),
         )
         state["diagnostics"]["leads_with_contact"] = sum(
             1 for l in ranked if l.get("has_contact")

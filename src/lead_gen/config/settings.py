@@ -102,10 +102,10 @@ class Settings(BaseSettings):
     # Recently signed EU grant = fresh budget: bonus on budget_signal
     recent_grant_boost_days: int = 365
     recent_grant_budget_floor: float = 8.0
-    # A grant whose deliverable IS software = the lab is already funded (and
-    # usually staffed) to build it — capability, not need. Down-rank it, the
-    # same way a JOSS paper would be treated.
-    software_grant_capability_multiplier: float = 0.85
+    # A grant whose deliverable IS software = money earmarked for exactly what
+    # Marine does. It does NOT mean the lab has an RSE on staff — the funding is
+    # a weak-positive budget signal, not proof of capability. Modest floor.
+    software_grant_budget_floor: float = 6.0
     # Lab-website email scraping is the most etiquette-sensitive source: opt-in
     enable_website_scrape: bool = False
     # Cap on EURAXESS job-detail pages fetched per run (for contact extraction)

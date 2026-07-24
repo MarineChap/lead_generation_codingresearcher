@@ -51,9 +51,11 @@ scan_infrastructure_signals:
        Keep only SIGNED or ACTIVE projects with software_keyword_count >= 2.
        Copy each project's start_date, total_cost and software_role into the
        signal's detail fields (see schema below). software_role="deliverable"
-       means the grant itself funds software (the lab is likely already
-       staffed for it — a weaker lead); "means" means software is needed to
-       reach a science goal (budget exists, no dedicated engineer — a strong lead).
+       means the grant funds software directly (money earmarked for this kind
+       of work — a positive but weak signal, since winning funding does not
+       mean they have an engineer on staff); "means" means software is needed
+       to reach a science goal (budget exists, no dedicated engineer — a
+       strong lead).
 
     2. EURAXESS: Call euraxess_job_search with these keywords (one call each):
        - "bioinformatics engineer"
