@@ -90,6 +90,32 @@ def contacts_from_paper(paper_id: str, offline: bool = False) -> list[dict]:
     ]
 
 
+_PREPRINT_SERVERS = ("biorxiv", "medrxiv")
+
+
+def contacts_from_preprint(doi: str, offline: bool = False) -> list[dict]:
+    """
+    Corresponding-author email for a bioRxiv/medRxiv preprint.
+
+    Preprints have no PMC full text, but the preprint HTML page lists the
+    corresponding author's email. DOI → server URL is deterministic
+    (10.1101/... → {server}.org/content/{doi}v1.full); we try both servers
+    and reuse the cached page fetcher. Degrades to [] when unreachable.
+    """
+    doi = (doi or "").strip()
+    if not doi.lower().startswith("10.1101/"):
+        return []
+    for server in _PREPRINT_SERVERS:
+        url = f"https://www.{server}.org/content/{doi}v1.full"
+        emails = _emails_from_page(url, offline=offline)
+        if emails:
+            return [
+                {"email": e, "name": None, "source": "preprint", "confidence": 0.6}
+                for e in emails
+            ]
+    return []
+
+
 def contacts_from_euraxess_job(
     job: dict, fetch_detail: bool = True, offline: bool = False
 ) -> list[dict]:
@@ -198,7 +224,12 @@ def build_contact_index(
         paper_id = str(signal.get("paper_id", "")).strip()
         if not paper_id:
             continue
-        contacts = contacts_from_paper(paper_id, offline=offline)
+        if signal.get("is_preprint") or paper_id.lower().startswith("10.1101/"):
+            contacts = contacts_from_preprint(
+                signal.get("doi") or paper_id, offline=offline
+            )
+        else:
+            contacts = contacts_from_paper(paper_id, offline=offline)
         if contacts:
             index[f"paper:{paper_id}"] = contacts
 

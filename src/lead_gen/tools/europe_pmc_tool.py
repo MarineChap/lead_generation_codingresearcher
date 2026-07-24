@@ -134,17 +134,23 @@ _BIO_NEURO_TERMS = (
 )
 
 
-def _build_query(pain_terms: str, months_back: int = 12) -> str:
+def _build_query(pain_terms: str, months_back: int = 12, preprints: bool = False) -> str:
     """Compose a full Europe PMC query with topic and date filters.
 
     Note: we do NOT filter by country here — Europe PMC's affiliation filtering
     is unreliable. European affiliation is checked in the enrichment crew via
     OpenAlex, which has authoritative country data.
+
+    When preprints=True, restrict to the PPR source (bioRxiv/medRxiv/etc.):
+    pre-peer-review methods are fresher and describe technical pain more
+    candidly ("code available on request", rough in-house scripts) than the
+    polished published version.
     """
     cutoff = (date.today() - timedelta(days=months_back * 30)).isoformat()
+    source = " AND (SRC:PPR)" if preprints else ""
     return (
         f"({pain_terms}) AND ({_BIO_NEURO_TERMS}) "
-        f"AND FIRST_PDATE:[{cutoff} TO *]"
+        f"AND FIRST_PDATE:[{cutoff} TO *]{source}"
     )
 
 
@@ -163,6 +169,14 @@ class EuropePMCSearchInput(BaseModel):
         default=25,
         description="Maximum number of papers to return (max 100).",
     )
+    preprints: bool = Field(
+        default=False,
+        description=(
+            "If true, search only preprints (bioRxiv/medRxiv, source PPR). "
+            "Preprints are fresher and describe technical pain more candidly. "
+            "Run each pain_type once with preprints=false and once with true."
+        ),
+    )
 
 
 class EuropePMCSearchTool(BaseTool):
@@ -170,26 +184,27 @@ class EuropePMCSearchTool(BaseTool):
     description: str = (
         "Search Europe PMC for recent bio/neuroscience papers from European labs "
         "that contain technical pain signals. "
-        "Input: a pain_type key (" + ", ".join(PAIN_QUERIES.keys()) + ") "
-        "and optionally max_results. "
+        "Input: a pain_type key (" + ", ".join(PAIN_QUERIES.keys()) + "), "
+        "optionally max_results, and preprints (true = bioRxiv/medRxiv preprints "
+        "only, which are fresher and more candid about technical pain). "
         "Returns a JSON list of papers with id, title, authors, journal, pub_date, "
-        "abstract, and affiliation info. Only returns fresh papers (within 6 months) "
+        "is_preprint, and affiliation info. Only returns fresh papers "
         "from European institutions."
     )
     args_schema: Type[BaseModel] = EuropePMCSearchInput
 
-    def _run(self, pain_type: str, max_results: int = 25) -> str:
+    def _run(self, pain_type: str, max_results: int = 25, preprints: bool = False) -> str:
         if pain_type not in PAIN_QUERIES:
             return json.dumps({
                 "error": f"Unknown pain_type '{pain_type}'. Choose from: {list(PAIN_QUERIES.keys())}"
             })
 
-        cache_key = f"search:{pain_type}:{max_results}"
+        cache_key = f"search:{pain_type}:{max_results}:{'ppr' if preprints else 'all'}"
         cached = _cache_get(cache_key)
         if cached:
             return json.dumps(cached)
 
-        query = _build_query(PAIN_QUERIES[pain_type])
+        query = _build_query(PAIN_QUERIES[pain_type], preprints=preprints)
 
         try:
             resp = _get_with_retry(
@@ -218,8 +233,15 @@ class EuropePMCSearchTool(BaseTool):
             has_fulltext = article.get("inPMC") == "Y" or article.get("isOpenAccess") == "Y"
             pmcid = article.get("pmcid", "")
 
+            is_preprint = preprints or article.get("source") == "PPR"
+            # Preprints have no PMCID; use the DOI as the stable id so the
+            # verification + contact steps can resolve them
+            paper_id = (
+                (article.get("doi") or article.get("id", "")) if is_preprint
+                else (pmcid or article.get("doi") or article.get("id", ""))
+            )
             papers.append({
-                "paper_id": pmcid or article.get("doi") or article.get("id", ""),
+                "paper_id": paper_id,
                 "pmid": article.get("pmid", ""),
                 "doi": article.get("doi", ""),
                 "title": article.get("title", "").strip(),
@@ -229,6 +251,7 @@ class EuropePMCSearchTool(BaseTool):
                 "source": "europepmc",
                 "pain_type": pain_type,
                 "has_fulltext": has_fulltext,
+                "is_preprint": is_preprint,
                 # European affiliation check deferred to OpenAlex enrichment crew
                 "european_confirmed": False,
             })

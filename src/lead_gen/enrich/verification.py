@@ -167,6 +167,11 @@ def enforce_scores(leads: list[dict]) -> list[dict]:
             + settings.weight_fit * fit
         )
 
+        if lead.get("grant_capability"):
+            total *= settings.software_grant_capability_multiplier
+            notes.append(
+                "lab already funded to build software (capability, not need) — down-ranked"
+            )
         if not lead.get("has_contact"):
             total *= settings.no_contact_score_multiplier
             notes.append("no direct contact found — down-ranked")

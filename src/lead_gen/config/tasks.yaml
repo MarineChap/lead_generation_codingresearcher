@@ -4,7 +4,10 @@ scan_papers_for_signals:
     reveal technical pain in their methods sections. Run all eight pain query types:
     ram_limitation, manual_scripts, long_processing, pipeline_bottleneck, no_automation,
     code_on_request, legacy_stack, resource_limited.
-    For each query, call europe_pmc_search with max_results=15.
+    For each query, call europe_pmc_search with max_results=15 TWICE: once with
+    preprints=false (published papers) and once with preprints=true
+    (bioRxiv/medRxiv preprints, which are fresher and more candid about
+    technical pain). Set is_preprint on each signal from the tool result.
     For papers that have has_fulltext=true and look promising, call europe_pmc_fulltext
     to get the methods section and find the exact pain sentence.
     Prioritize papers where europe_pmc_fulltext succeeds (open access): their
@@ -24,6 +27,7 @@ scan_papers_for_signals:
     - paper_id, doi, title, journal, pub_date
     - author_string (from Europe PMC)
     - first_author_openalex_id (from OpenAlex work search)
+    - is_preprint (from the tool result: true for bioRxiv/medRxiv preprints)
     - pain_type (which query matched)
     - pain_keywords_found (list of specific words that triggered the match)
     - raw_evidence (the exact sentence or abstract snippet showing the pain —
@@ -45,6 +49,11 @@ scan_infrastructure_signals:
        - "computational neuroscience data pipeline"
        - "genomics bioinformatics software"
        Keep only SIGNED or ACTIVE projects with software_keyword_count >= 2.
+       Copy each project's start_date, total_cost and software_role into the
+       signal's detail fields (see schema below). software_role="deliverable"
+       means the grant itself funds software (the lab is likely already
+       staffed for it — a weaker lead); "means" means software is needed to
+       reach a science goal (budget exists, no dedicated engineer — a strong lead).
 
     2. EURAXESS: Call euraxess_job_search with these keywords (one call each):
        - "bioinformatics engineer"
@@ -64,6 +73,8 @@ scan_infrastructure_signals:
     - evidence (title, job post title, or repo name)
     - detail (objective snippet, job description snippet, or tech_debt_signals list)
     - raw_url (link to the source)
+    - for cordis signals only, also include: start_date, total_cost, software_role
+      (copied verbatim from the cordis_project_search result)
   expected_output: >
     A valid JSON array of infrastructure signal objects. Maximum 30 items.
     Each item must have all fields above. Merge duplicate entries for the same institution.

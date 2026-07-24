@@ -61,6 +61,40 @@ _SOFTWARE_KEYWORDS = [
     "code",
 ]
 
+# When software IS the funded deliverable, the lab is already funded (and
+# usually staffed) to build it — a capability marker, not a need. These grants
+# should be down-ranked, mirroring the "they already have a JOSS paper" logic.
+_SOFTWARE_DELIVERABLE_MARKERS = [
+    "open-source software",
+    "open source software",
+    "software infrastructure",
+    "research software engineer",
+    "software sustainability",
+    "e-infrastructure",
+    "software framework",
+    "software platform",
+    "develop a software",
+    "development of software",
+    "software development kit",
+    "reusable software",
+]
+
+
+def _classify_software_role(text: str) -> str:
+    """
+    Distinguish grants where software is the DELIVERABLE (capability — the lab
+    is funded to build it) from grants where software is a MEANS to a science
+    aim (need — budget exists, but no dedicated engineering line).
+
+    Returns "deliverable" | "means" | "none".
+    """
+    lowered = (text or "").lower()
+    if any(marker in lowered for marker in _SOFTWARE_DELIVERABLE_MARKERS):
+        return "deliverable"
+    if _count_software_keywords(text) >= 2:
+        return "means"
+    return "none"
+
 
 # ---------------------------------------------------------------------------
 # Cache helpers  (prefix: cordis_)
@@ -256,6 +290,7 @@ def _parse_project(hit: dict) -> Optional[dict]:
         "total_cost": project.get("totalCost"),
         "objective_snippet": objective_snippet,
         "software_keyword_count": _count_software_keywords(objective_full),
+        "software_role": _classify_software_role(objective_full),
         "is_active": True,
     }
 
@@ -291,8 +326,11 @@ class CORDISProjectSearchTool(BaseTool):
         "Input: keywords (str) and max_results (int, default 20). "
         "Returns JSON with keys: total (int), projects (list of dicts with id, title, "
         "acronym, programme, start_date, end_date, status, coordinator_name, "
-        "coordinator_country, total_cost, objective_snippet, software_keyword_count, "
-        "is_active). Only ACTIVE projects are included. "
+        "coordinator_country, coordinator_email, total_cost, objective_snippet, "
+        "software_keyword_count, software_role ('deliverable' = grant funds "
+        "software so the lab is likely already staffed; 'means' = software "
+        "needed for a science goal, budget but no engineer — the stronger lead; "
+        "'none'), is_active). Only ACTIVE projects are included. "
         "Use PREDEFINED_QUERIES from cordis_tool for ready-made query strings."
     )
     args_schema: Type[BaseModel] = CORDISSearchInput
@@ -403,6 +441,7 @@ def _html_fallback(keywords: str, max_results: int) -> Optional[dict]:
                 "total_cost": None,
                 "objective_snippet": desc,
                 "software_keyword_count": _count_software_keywords(desc),
+                "software_role": _classify_software_role(desc),
                 "is_active": True,
             })
 
