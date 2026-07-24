@@ -128,6 +128,30 @@ def record_lead(
 
 
 # ---------------------------------------------------------------------------
+# Suppression list — opt-outs are never contacted again (GDPR hygiene)
+# ---------------------------------------------------------------------------
+
+def is_email_suppressed(email: str) -> bool:
+    """Return True if this address opted out of outreach."""
+    if not email:
+        return False
+    data = _load()
+    suppressed = data.get("suppressed_emails", [])
+    return email.strip().lower() in suppressed
+
+
+def suppress_email(email: str) -> None:
+    """Add an address to the do-not-contact list."""
+    if not email:
+        return
+    data = _load()
+    suppressed = set(data.get("suppressed_emails", []))
+    suppressed.add(email.strip().lower())
+    data["suppressed_emails"] = sorted(suppressed)
+    _save(data)
+
+
+# ---------------------------------------------------------------------------
 # Freshness filters — called before signals reach the LLM
 # ---------------------------------------------------------------------------
 

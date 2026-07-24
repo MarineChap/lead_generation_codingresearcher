@@ -237,6 +237,12 @@ h1 span{color:var(--accent);font-style:italic}
 .tag.grant{color:var(--accent)}
 .tag.signal{color:#c090e0}
 .tag.hiring{color:#e0a0b0}
+.tag.contact{color:var(--accent);border:1px solid var(--accent-dim)}
+.tag.contact a{color:inherit;text-decoration:none}
+.tag.contact a:hover{text-decoration:underline}
+.tag.nocontact{color:var(--danger)}
+.tag.verified{color:var(--accent)}
+.tag.unverified{color:var(--orange)}
 
 /* score bar */
 .score-section{margin-bottom:1rem}
@@ -451,6 +457,12 @@ function renderLeads(data) {
         <div class="card-rank">#${lead.rank}</div>
       </div>
       <div class="meta">
+        ${lead.primary_contact_email
+          ? `<span class="tag contact">&#9993; <a href="mailto:${lead.primary_contact_email}">${lead.primary_contact_email}</a>${lead.contact_source ? ` (${lead.contact_source})` : ''}</span>`
+          : `<span class="tag nocontact">no direct contact</span>`}
+        ${lead.evidence_verified
+          ? `<span class="tag verified">&#10003; evidence verified</span>`
+          : `<span class="tag unverified">evidence unverified</span>`}
         ${loc ? `<span class="tag country"><span class="icon">${flag(lead.country)}</span>${loc}</span>` : ''}
         ${lead.service_match ? `<span class="tag service">${lead.service_match.replace(/_/g,' ')}</span>` : ''}
         ${grants.map(g => `<span class="tag grant">EU ${g}</span>`).join('')}
@@ -465,6 +477,7 @@ function renderLeads(data) {
         ${scoreBar('Timing', s.timing_signal||0, 10, SCORE_COLORS.timing)}
         ${scoreBar('Fit', s.fit_score||0, 10, SCORE_COLORS.fit)}
       </div>
+      ${lead.reason_for_need ? `<div class="detail-block"><div class="detail-title">Why they need an RSE (verified)</div><div class="detail-text">${lead.reason_for_need}</div></div>` : ''}
       ${s.pain_justification ? `<div class="detail-block"><div class="detail-title">Pain</div><div class="detail-text">${s.pain_justification}</div></div>` : ''}
       ${s.budget_justification ? `<div class="detail-block"><div class="detail-title">Budget</div><div class="detail-text">${s.budget_justification}</div></div>` : ''}
       ${s.timing_justification ? `<div class="detail-block"><div class="detail-title">Timing</div><div class="detail-text">${s.timing_justification}</div></div>` : ''}

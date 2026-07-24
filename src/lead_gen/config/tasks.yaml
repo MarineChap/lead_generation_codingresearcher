@@ -1,11 +1,15 @@
 scan_papers_for_signals:
   description: >
     Search Europe PMC for recent bio/neuroscience papers from European labs that
-    reveal technical pain in their methods sections. Run all five pain query types:
-    ram_limitation, manual_scripts, long_processing, pipeline_bottleneck, no_automation.
-    For each query, call europe_pmc_search with max_results=3.
+    reveal technical pain in their methods sections. Run all eight pain query types:
+    ram_limitation, manual_scripts, long_processing, pipeline_bottleneck, no_automation,
+    code_on_request, legacy_stack, resource_limited.
+    For each query, call europe_pmc_search with max_results=15.
     For papers that have has_fulltext=true and look promising, call europe_pmc_fulltext
     to get the methods section and find the exact pain sentence.
+    Prioritize papers where europe_pmc_fulltext succeeds (open access): their
+    evidence can be verified and their corresponding-author contact extracted —
+    those leads are directly contactable.
     Then call openalex_work_search with the paper DOI to confirm European authorship
     (has_european_author=true) and get the first author's openalex_id.
     Only include papers where European authorship is confirmed.
@@ -22,7 +26,10 @@ scan_papers_for_signals:
     - first_author_openalex_id (from OpenAlex work search)
     - pain_type (which query matched)
     - pain_keywords_found (list of specific words that triggered the match)
-    - raw_evidence (the exact sentence or abstract snippet showing the pain)
+    - raw_evidence (the exact sentence or abstract snippet showing the pain —
+      copy it VERBATIM, character for character: every quote is checked
+      automatically against the real article text and non-matching quotes get
+      the whole signal discarded)
     - confidence (0.0-1.0: how clearly does this reveal a technical problem?)
   expected_output: >
     A valid JSON array of paper signal objects. Maximum 25 items.
@@ -142,8 +149,15 @@ qualify_and_rank_leads:
     - 1-2: Needs HPC admin, DevOps, or non-Python work
 
     Compute total = 0.35*pain + 0.25*budget + 0.20*timing + 0.20*fit.
+    (The total is recomputed and enforced in code afterwards — focus on getting
+    the four dimension scores and their justifications right, with each
+    justification citing a concrete fact from the profile.)
     Assign service_match based on the highest fit area.
     Sort by total score descending. Keep top 20. Assign rank 1..20.
+
+    IMPORTANT: a lab with hiring_signals (an active tech-role job post) is a
+    top-tier lead — the lab has publicly admitted it needs software help and
+    has budget for it. Score pain_intensity and timing_signal accordingly.
 
     Return a JSON array where each item extends the lab profile with:
     - lead_id (generate a short unique ID: prefix "lead-" + zero-padded rank + "-" + a slug of the institution name, e.g. "lead-01-max-planck-neuroscience")
@@ -163,7 +177,12 @@ write_outreach_angles:
   description: >
     Write personalized outreach packages for these top-ranked leads:
     Leads: {ranked_leads}
-    
+
+    GROUNDING RULE: every factual claim in the outreach (their pain, their
+    grant, their job post, their code) MUST come from the lead's
+    reason_for_need field or raw_evidence_snippets — these are verified facts.
+    Never invent details that are not in those fields.
+
     For each lead, write a personalized outreach package:
 
     hook: One sentence that opens with something specific from their work.
@@ -189,6 +208,11 @@ write_outreach_angles:
     Rules: under 150 words. Signed "Marine, CodingResearcher.com".
     No corporate jargon. No "I hope this email finds you well".
     Reference at least one specific detail (paper title, grant name, tool name, or dataset).
+    If the lead has primary_contact_email from source "epmc_corresp", mention
+    naturally where the contact came from (e.g. "I found your email in your
+    recent paper on ...").
+    End with a one-line opt-out before the signature, e.g.
+    "If you'd rather not hear from me again, just reply 'no thanks'."
 
     Return a JSON array where each item is the full lead object with an added
     "outreach" field containing: {hook, service_pitch, free_audit_offer, email_draft}.

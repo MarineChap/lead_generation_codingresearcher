@@ -3,6 +3,7 @@ from crewai.project import CrewBase, agent, crew, task
 from pathlib import Path
 
 from ..config.settings import settings
+from ..parsing import parse_json_array
 
 YAML_DIR = Path(__file__).parent.parent / "config"
 
@@ -52,30 +53,18 @@ class OutreachCrew:
         )
 
 
-def run_outreach(ranked_leads: list) -> list:
-    """Generate outreach angles for top leads. Returns leads with outreach field."""
+def run_outreach(ranked_leads: list) -> tuple[list, list[str]]:
+    """Generate outreach angles for top leads. Returns (leads, parse_errors)."""
     import json
 
-    result = OutreachCrew().crew().kickoff(
-        inputs={"ranked_leads": json.dumps(ranked_leads)}
-    )
+    def _kickoff() -> str:
+        result = OutreachCrew().crew().kickoff(
+            inputs={"ranked_leads": json.dumps(ranked_leads)}
+        )
+        return result.raw or ""
 
-    raw = result.raw or ""
-    try:
-        # Try to find JSON in the output if it's wrapped in markdown
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict) and len(parsed) == 1:
-            # Handle case where output is {"leads": [...]}
-            value = list(parsed.values())[0]
-            if isinstance(value, list):
-                return value
-        return []
-    except (json.JSONDecodeError, TypeError, IndexError):
-        return []
+    # Single-task, no-tools crew: a bounded retry on parse failure is cheap
+    parsed = parse_json_array(_kickoff(), context="outreach", retry_cb=_kickoff)
+    if parsed.failed:
+        return [], [parsed.error]
+    return parsed.items, []

@@ -22,6 +22,7 @@ Each project has:
 
 import hashlib
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Type
@@ -141,8 +142,29 @@ def _ensure_list(value: Any) -> list:
     return [value]
 
 
-def _extract_coordinator(associations: dict) -> tuple[str, str]:
-    """Return (legalName, country_isoCode) for the coordinator org, or ('', '')."""
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
+
+def _find_email_in(value: Any) -> str:
+    """Recursively scan a JSON fragment for the first email-shaped string."""
+    if isinstance(value, str):
+        match = _EMAIL_RE.search(value)
+        return match.group(0) if match else ""
+    if isinstance(value, dict):
+        for v in value.values():
+            found = _find_email_in(v)
+            if found:
+                return found
+    if isinstance(value, list):
+        for v in value:
+            found = _find_email_in(v)
+            if found:
+                return found
+    return ""
+
+
+def _extract_coordinator(associations: dict) -> tuple[str, str, str]:
+    """Return (legalName, country_isoCode, email) for the coordinator org."""
     orgs = _ensure_list(associations.get("organization"))
     for org in orgs:
         attrs = org.get("@attributes", {})
@@ -155,8 +177,11 @@ def _extract_coordinator(associations: dict) -> tuple[str, str]:
                 country_field = address.get("country", {})
                 if isinstance(country_field, dict):
                     country = country_field.get("isoCode", "")
-            return name, country
-    return "", ""
+            # CORDIS rarely exposes emails, but when it does (contactPerson,
+            # address fields) it's a directly usable lead contact
+            email = _find_email_in(org)
+            return name, country, email
+    return "", "", ""
 
 
 def _extract_programme(associations: dict) -> str:
@@ -211,7 +236,7 @@ def _parse_project(hit: dict) -> Optional[dict]:
         return None
 
     associations = project.get("relations", {}).get("associations", {})
-    coordinator_name, coordinator_country = _extract_coordinator(associations)
+    coordinator_name, coordinator_country, coordinator_email = _extract_coordinator(associations)
     programme = _extract_programme(associations)
 
     objective_full = project.get("objective") or project.get("teaser") or ""
@@ -227,6 +252,7 @@ def _parse_project(hit: dict) -> Optional[dict]:
         "status": status,
         "coordinator_name": coordinator_name,
         "coordinator_country": coordinator_country,
+        "coordinator_email": coordinator_email,
         "total_cost": project.get("totalCost"),
         "objective_snippet": objective_snippet,
         "software_keyword_count": _count_software_keywords(objective_full),
@@ -373,6 +399,7 @@ def _html_fallback(keywords: str, max_results: int) -> Optional[dict]:
                 "status": "UNKNOWN",
                 "coordinator_name": "",
                 "coordinator_country": "",
+                "coordinator_email": "",
                 "total_cost": None,
                 "objective_snippet": desc,
                 "software_keyword_count": _count_software_keywords(desc),

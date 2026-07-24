@@ -12,6 +12,7 @@ from crewai import Agent, Crew, Process, Task, LLM
 from crewai.project import CrewBase, agent, crew, task
 
 from ..config.settings import settings
+from ..parsing import parse_json_array
 from ..tools import OpenAlexAuthorLookupTool, OpenAlexInstitutionTool, OpenAlexWorkSearchTool
 from ..tools.dedup_tool import DeduplicationTool
 
@@ -84,8 +85,8 @@ class EnrichmentCrew:
 # Standalone entry-point
 # ------------------------------------------------------------------
 
-def run_enrichment(paper_signals: list, infra_signals: list) -> list:
-    """Run enrichment and return list of LabProfile dicts."""
+def run_enrichment(paper_signals: list, infra_signals: list) -> tuple[list, list[str]]:
+    """Run enrichment and return (lab_profile_dicts, parse_errors)."""
     inputs = {
         "paper_signals": json.dumps(paper_signals, ensure_ascii=False),
         "infra_signals": json.dumps(infra_signals, ensure_ascii=False),
@@ -93,21 +94,8 @@ def run_enrichment(paper_signals: list, infra_signals: list) -> list:
 
     result = EnrichmentCrew().crew().kickoff(inputs=inputs)
 
-    lab_profiles: list = []
-
-    if result.tasks_output:
-        raw = result.tasks_output[0].raw or ""
-        try:
-            # Handle markdown wrapping
-            if "```json" in raw:
-                raw = raw.split("```json")[1].split("```")[0].strip()
-            elif "```" in raw:
-                raw = raw.split("```")[1].split("```")[0].strip()
-            
-            parsed = json.loads(raw)
-            if isinstance(parsed, list):
-                lab_profiles = parsed
-        except (json.JSONDecodeError, TypeError, IndexError):
-            pass
-
-    return lab_profiles
+    raw = result.tasks_output[0].raw if result.tasks_output else ""
+    parsed = parse_json_array(raw or "", context="enrichment")
+    if parsed.failed:
+        return [], [parsed.error]
+    return parsed.items, []

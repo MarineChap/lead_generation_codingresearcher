@@ -18,7 +18,6 @@ Design notes:
 import hashlib
 import json
 import time
-import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional, Type
@@ -28,6 +27,7 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ..config.settings import settings
+from ..enrich import fulltext, jats
 from ..store import is_paper_fresh
 
 
@@ -100,6 +100,22 @@ PAIN_QUERIES: dict[str, str] = {
         '"manually annotated" OR "hand-annotated" OR "manually inspected" '
         'OR "manual review" OR "no automated"'
     ),
+    # High-intent maintenance-debt signals: a lab that only shares code "upon
+    # request" or runs on in-house scripts owns software nobody maintains.
+    "code_on_request": (
+        '"code available upon request" OR "scripts available upon request" '
+        'OR "custom scripts" OR "in-house script" OR "in-house pipeline" '
+        'OR "custom-written software"'
+    ),
+    "legacy_stack": (
+        '"custom MATLAB" OR "in-house MATLAB" OR "MATLAB scripts" '
+        'OR "legacy code" OR "custom Perl"'
+    ),
+    "resource_limited": (
+        '"computationally prohibitive" OR "computationally expensive" '
+        'OR "downsampled due to memory" OR "prohibitive computational cost" '
+        'OR "manually curated"'
+    ),
 }
 
 # European country keywords for post-hoc affiliation filtering
@@ -154,8 +170,8 @@ class EuropePMCSearchTool(BaseTool):
     description: str = (
         "Search Europe PMC for recent bio/neuroscience papers from European labs "
         "that contain technical pain signals. "
-        "Input: a pain_type key (ram_limitation, manual_scripts, long_processing, "
-        "pipeline_bottleneck, no_automation) and optionally max_results. "
+        "Input: a pain_type key (" + ", ".join(PAIN_QUERIES.keys()) + ") "
+        "and optionally max_results. "
         "Returns a JSON list of papers with id, title, authors, journal, pub_date, "
         "abstract, and affiliation info. Only returns fresh papers (within 6 months) "
         "from European institutions."
@@ -244,68 +260,30 @@ class EuropePMCFullTextTool(BaseTool):
         "The methods section reveals technical limitations: RAM constraints, manual steps, "
         "processing times, pipeline bottlenecks. "
         "Input: paper_id like 'PMC9876543'. "
-        "Returns methods text (up to 2000 chars) or an error if not available."
+        "Returns methods text (up to 2000 chars), plus corresponding-author contact "
+        "info when present, or an error if not available."
     )
     args_schema: Type[BaseModel] = EuropePMCFullTextInput
 
     def _run(self, paper_id: str) -> str:
-        pmc_id = paper_id.upper().strip()
-        if not pmc_id.startswith("PMC"):
-            pmc_id = f"PMC{pmc_id}"
+        pmc_id = fulltext.normalize_pmc_id(paper_id)
 
         cache_key = f"fulltext:{pmc_id}"
         cached = _cache_get(cache_key)
         if cached:
             return json.dumps(cached)
 
-        try:
-            resp = _get_with_retry(
-                f"{settings.europe_pmc_base_url}/PMC/{pmc_id}/fullTextXML",
-                params={},
-            )
-            if resp.status_code == 404:
-                return json.dumps({"error": f"{pmc_id} not available as open-access full text"})
-            resp.raise_for_status()
-        except Exception as e:
-            return json.dumps({"error": f"Full text fetch failed for {pmc_id}: {e}"})
+        xml_text = fulltext.fetch_fulltext_xml(pmc_id)
+        if not xml_text:
+            return json.dumps({"error": f"{pmc_id} not available as open-access full text"})
 
-        methods_text = _extract_methods(resp.text)
+        methods_text = jats.extract_methods(xml_text)
+        corresponding = jats.extract_corresponding_emails(xml_text)
         result = {
             "paper_id": pmc_id,
             "methods_text": methods_text[:2000] if methods_text else None,
             "has_methods": bool(methods_text),
+            "corresponding_emails": corresponding,
         }
         _cache_set(cache_key, result)
         return json.dumps(result)
-
-
-def _extract_methods(xml_text: str) -> Optional[str]:
-    """
-    Parse PMC XML and extract methods section text.
-    Handles both sec-type="methods" and title-matched sections.
-    """
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return None
-
-    # Strip XML namespaces for simpler matching
-    for elem in root.iter():
-        if "}" in elem.tag:
-            elem.tag = elem.tag.split("}")[1]
-
-    candidates = []
-    for sec in root.iter("sec"):
-        sec_type = (sec.get("sec-type") or "").lower()
-        title_elem = sec.find("title")
-        title_text = (title_elem.text or "").lower() if title_elem is not None else ""
-
-        if "method" in sec_type or "method" in title_text or "material" in title_text:
-            parts = [
-                (elem.text or "").strip()
-                for elem in sec.iter()
-                if (elem.text or "").strip()
-            ]
-            candidates.append(" ".join(parts))
-
-    return max(candidates, key=len) if candidates else None

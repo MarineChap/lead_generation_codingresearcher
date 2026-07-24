@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article xmlns:xlink="http://www.w3.org/1999/xlink" article-type="research-article">
+  <front>
+    <journal-meta>
+      <journal-title-group>
+        <journal-title>Genomics Pipelines Quarterly</journal-title>
+      </journal-title-group>
+    </journal-meta>
+    <article-meta>
+      <title-group>
+        <article-title>A manual annotation workflow for rare variants</article-title>
+      </title-group>
+      <contrib-group>
+        <contrib contrib-type="author">
+          <name>
+            <surname>Rossi</surname>
+            <given-names>Marco</given-names>
+          </name>
+        </contrib>
+      </contrib-group>
+    </article-meta>
+  </front>
+  <body>
+    <sec sec-type="methods">
+      <title>Methods</title>
+      <p>Variants were manually annotated by two curators. This step was
+      time-consuming and computationally prohibitive to fully automate with our
+      current tooling.</p>
+    </sec>
+  </body>
+</article>

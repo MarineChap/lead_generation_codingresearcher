@@ -159,14 +159,6 @@ def _is_notebook_heavy(repo: dict) -> bool:
     topics = repo.get("topics", [])
     return "jupyter" in desc or "notebook" in desc or "jupyter-notebook" in topics
 
-def _has_no_tests_simple(full_name: str) -> bool:
-    """Check for 'tests' in repo metadata or lightweight contents API if cached."""
-    return False # Skip expensive check for now
-
-
-# Skipping expensive file-based checks to stay within Rate limits
-
-
 def _is_stale_with_issues(repo: dict) -> bool:
     """
     Return True when the repo has been quiet for > 6 months but has open issues.
@@ -236,6 +228,11 @@ def _detect_signals(repo: dict) -> tuple[list[str], float]:
     if _is_small_team(full_name):
         signals.append("small_team")
 
+    # No-tests check (one code-search call) — only when a token is configured,
+    # since unauthenticated code search burns the 10 req/min budget instantly
+    if settings.github_token and _has_no_tests(full_name):
+        signals.append("no_tests")
+
     score = min(len(signals) * 3.3, 10.0)
     return signals, score
 
@@ -265,8 +262,8 @@ class GitHubLabSearchTool(BaseTool):
     name: str = "github_lab_search"
     description: str = (
         "Search GitHub for public repositories from European bio/neuro research labs "
-        "that exhibit technical debt signals (no tests, notebook-heavy code, outdated "
-        "packaging, no CI, stale but with open issues, small team). "
+        "that exhibit technical debt signals (notebook-heavy code, stale but with "
+        "open issues, small team, and — when a token is configured — no tests). "
         "Input: a query string (predefined key or raw GitHub search syntax) and "
         "optionally max_results. "
         "Predefined query keys: "

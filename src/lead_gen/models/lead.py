@@ -38,3 +38,12 @@ class LeadCard(BaseModel):
     score: LeadScore
     outreach: Optional[OutreachAngle] = None  # populated in outreach crew
     rank: Optional[int] = None  # set after qualification ranking
+
+    # Deterministic post-processing fields (set in code, not by the LLM)
+    has_contact: bool = False
+    primary_contact_email: Optional[str] = None
+    primary_contact_name: Optional[str] = None
+    contact_source: Optional[str] = None
+    evidence_verified: bool = False
+    verification_notes: list[str] = []
+    reason_for_need: str = ""  # synthesized only from verified facts
