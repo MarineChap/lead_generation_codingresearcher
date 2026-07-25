@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article xmlns:xlink="http://www.w3.org/1999/xlink" article-type="research-article">
+  <front>
+    <journal-meta>
+      <journal-title-group>
+        <journal-title>Proteomics Data Science</journal-title>
+      </journal-title-group>
+    </journal-meta>
+    <article-meta>
+      <title-group>
+        <article-title>Downsampling strategies under memory constraints</article-title>
+      </title-group>
+      <contrib-group>
+        <contrib contrib-type="author">
+          <name>
+            <surname>Nowak</surname>
+            <given-names>Ewa</given-names>
+          </name>
+        </contrib>
+      </contrib-group>
+    </article-meta>
+  </front>
+  <body>
+    <sec sec-type="methods">
+      <title>Methods</title>
+      <p>Datasets were downsampled due to memory limits on the analysis node.</p>
+    </sec>
+  </body>
+  <back>
+    <ack>
+      <p>We thank the reviewers. For the toolkit contact
+      support@biomedcentral.com or the maintainer at devnull@example.com.</p>
+    </ack>
+    <ref-list>
+      <ref>
+        <mixed-citation>Correspondence archived at reprints@elsevier.com.</mixed-citation>
+      </ref>
+    </ref-list>
+  </back>
+</article>

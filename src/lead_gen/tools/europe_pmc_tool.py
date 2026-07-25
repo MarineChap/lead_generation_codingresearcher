@@ -18,7 +18,6 @@ Design notes:
 import hashlib
 import json
 import time
-import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional, Type
@@ -28,6 +27,7 @@ from crewai.tools import BaseTool
 from pydantic import BaseModel, Field
 
 from ..config.settings import settings
+from ..enrich import fulltext, jats
 from ..store import is_paper_fresh
 
 
@@ -100,6 +100,22 @@ PAIN_QUERIES: dict[str, str] = {
         '"manually annotated" OR "hand-annotated" OR "manually inspected" '
         'OR "manual review" OR "no automated"'
     ),
+    # High-intent maintenance-debt signals: a lab that only shares code "upon
+    # request" or runs on in-house scripts owns software nobody maintains.
+    "code_on_request": (
+        '"code available upon request" OR "scripts available upon request" '
+        'OR "custom scripts" OR "in-house script" OR "in-house pipeline" '
+        'OR "custom-written software"'
+    ),
+    "legacy_stack": (
+        '"custom MATLAB" OR "in-house MATLAB" OR "MATLAB scripts" '
+        'OR "legacy code" OR "custom Perl"'
+    ),
+    "resource_limited": (
+        '"computationally prohibitive" OR "computationally expensive" '
+        'OR "downsampled due to memory" OR "prohibitive computational cost" '
+        'OR "manually curated"'
+    ),
 }
 
 # European country keywords for post-hoc affiliation filtering
@@ -118,17 +134,23 @@ _BIO_NEURO_TERMS = (
 )
 
 
-def _build_query(pain_terms: str, months_back: int = 12) -> str:
+def _build_query(pain_terms: str, months_back: int = 12, preprints: bool = False) -> str:
     """Compose a full Europe PMC query with topic and date filters.
 
     Note: we do NOT filter by country here — Europe PMC's affiliation filtering
     is unreliable. European affiliation is checked in the enrichment crew via
     OpenAlex, which has authoritative country data.
+
+    When preprints=True, restrict to the PPR source (bioRxiv/medRxiv/etc.):
+    pre-peer-review methods are fresher and describe technical pain more
+    candidly ("code available on request", rough in-house scripts) than the
+    polished published version.
     """
     cutoff = (date.today() - timedelta(days=months_back * 30)).isoformat()
+    source = " AND (SRC:PPR)" if preprints else ""
     return (
         f"({pain_terms}) AND ({_BIO_NEURO_TERMS}) "
-        f"AND FIRST_PDATE:[{cutoff} TO *]"
+        f"AND FIRST_PDATE:[{cutoff} TO *]{source}"
     )
 
 
@@ -147,6 +169,14 @@ class EuropePMCSearchInput(BaseModel):
         default=25,
         description="Maximum number of papers to return (max 100).",
     )
+    preprints: bool = Field(
+        default=False,
+        description=(
+            "If true, search only preprints (bioRxiv/medRxiv, source PPR). "
+            "Preprints are fresher and describe technical pain more candidly. "
+            "Run each pain_type once with preprints=false and once with true."
+        ),
+    )
 
 
 class EuropePMCSearchTool(BaseTool):
@@ -154,26 +184,27 @@ class EuropePMCSearchTool(BaseTool):
     description: str = (
         "Search Europe PMC for recent bio/neuroscience papers from European labs "
         "that contain technical pain signals. "
-        "Input: a pain_type key (ram_limitation, manual_scripts, long_processing, "
-        "pipeline_bottleneck, no_automation) and optionally max_results. "
+        "Input: a pain_type key (" + ", ".join(PAIN_QUERIES.keys()) + "), "
+        "optionally max_results, and preprints (true = bioRxiv/medRxiv preprints "
+        "only, which are fresher and more candid about technical pain). "
         "Returns a JSON list of papers with id, title, authors, journal, pub_date, "
-        "abstract, and affiliation info. Only returns fresh papers (within 6 months) "
+        "is_preprint, and affiliation info. Only returns fresh papers "
         "from European institutions."
     )
     args_schema: Type[BaseModel] = EuropePMCSearchInput
 
-    def _run(self, pain_type: str, max_results: int = 25) -> str:
+    def _run(self, pain_type: str, max_results: int = 25, preprints: bool = False) -> str:
         if pain_type not in PAIN_QUERIES:
             return json.dumps({
                 "error": f"Unknown pain_type '{pain_type}'. Choose from: {list(PAIN_QUERIES.keys())}"
             })
 
-        cache_key = f"search:{pain_type}:{max_results}"
+        cache_key = f"search:{pain_type}:{max_results}:{'ppr' if preprints else 'all'}"
         cached = _cache_get(cache_key)
         if cached:
             return json.dumps(cached)
 
-        query = _build_query(PAIN_QUERIES[pain_type])
+        query = _build_query(PAIN_QUERIES[pain_type], preprints=preprints)
 
         try:
             resp = _get_with_retry(
@@ -202,8 +233,15 @@ class EuropePMCSearchTool(BaseTool):
             has_fulltext = article.get("inPMC") == "Y" or article.get("isOpenAccess") == "Y"
             pmcid = article.get("pmcid", "")
 
+            is_preprint = preprints or article.get("source") == "PPR"
+            # Preprints have no PMCID; use the DOI as the stable id so the
+            # verification + contact steps can resolve them
+            paper_id = (
+                (article.get("doi") or article.get("id", "")) if is_preprint
+                else (pmcid or article.get("doi") or article.get("id", ""))
+            )
             papers.append({
-                "paper_id": pmcid or article.get("doi") or article.get("id", ""),
+                "paper_id": paper_id,
                 "pmid": article.get("pmid", ""),
                 "doi": article.get("doi", ""),
                 "title": article.get("title", "").strip(),
@@ -213,6 +251,7 @@ class EuropePMCSearchTool(BaseTool):
                 "source": "europepmc",
                 "pain_type": pain_type,
                 "has_fulltext": has_fulltext,
+                "is_preprint": is_preprint,
                 # European affiliation check deferred to OpenAlex enrichment crew
                 "european_confirmed": False,
             })
@@ -244,68 +283,30 @@ class EuropePMCFullTextTool(BaseTool):
         "The methods section reveals technical limitations: RAM constraints, manual steps, "
         "processing times, pipeline bottlenecks. "
         "Input: paper_id like 'PMC9876543'. "
-        "Returns methods text (up to 2000 chars) or an error if not available."
+        "Returns methods text (up to 2000 chars), plus corresponding-author contact "
+        "info when present, or an error if not available."
     )
     args_schema: Type[BaseModel] = EuropePMCFullTextInput
 
     def _run(self, paper_id: str) -> str:
-        pmc_id = paper_id.upper().strip()
-        if not pmc_id.startswith("PMC"):
-            pmc_id = f"PMC{pmc_id}"
+        pmc_id = fulltext.normalize_pmc_id(paper_id)
 
         cache_key = f"fulltext:{pmc_id}"
         cached = _cache_get(cache_key)
         if cached:
             return json.dumps(cached)
 
-        try:
-            resp = _get_with_retry(
-                f"{settings.europe_pmc_base_url}/PMC/{pmc_id}/fullTextXML",
-                params={},
-            )
-            if resp.status_code == 404:
-                return json.dumps({"error": f"{pmc_id} not available as open-access full text"})
-            resp.raise_for_status()
-        except Exception as e:
-            return json.dumps({"error": f"Full text fetch failed for {pmc_id}: {e}"})
+        xml_text = fulltext.fetch_fulltext_xml(pmc_id)
+        if not xml_text:
+            return json.dumps({"error": f"{pmc_id} not available as open-access full text"})
 
-        methods_text = _extract_methods(resp.text)
+        methods_text = jats.extract_methods(xml_text)
+        corresponding = jats.extract_corresponding_emails(xml_text)
         result = {
             "paper_id": pmc_id,
             "methods_text": methods_text[:2000] if methods_text else None,
             "has_methods": bool(methods_text),
+            "corresponding_emails": corresponding,
         }
         _cache_set(cache_key, result)
         return json.dumps(result)
-
-
-def _extract_methods(xml_text: str) -> Optional[str]:
-    """
-    Parse PMC XML and extract methods section text.
-    Handles both sec-type="methods" and title-matched sections.
-    """
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError:
-        return None
-
-    # Strip XML namespaces for simpler matching
-    for elem in root.iter():
-        if "}" in elem.tag:
-            elem.tag = elem.tag.split("}")[1]
-
-    candidates = []
-    for sec in root.iter("sec"):
-        sec_type = (sec.get("sec-type") or "").lower()
-        title_elem = sec.find("title")
-        title_text = (title_elem.text or "").lower() if title_elem is not None else ""
-
-        if "method" in sec_type or "method" in title_text or "material" in title_text:
-            parts = [
-                (elem.text or "").strip()
-                for elem in sec.iter()
-                if (elem.text or "").strip()
-            ]
-            candidates.append(" ".join(parts))
-
-    return max(candidates, key=len) if candidates else None

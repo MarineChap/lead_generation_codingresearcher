@@ -3,6 +3,7 @@ from crewai.project import CrewBase, agent, crew, task
 from pathlib import Path
 
 from ..config.settings import settings
+from ..parsing import parse_json_array
 
 YAML_DIR = Path(__file__).parent.parent / "config"
 
@@ -52,30 +53,31 @@ class QualificationCrew:
         )
 
 
-def run_qualification(lab_profiles: list) -> list:
-    """Score and rank lab profiles. Returns list of ranked lead dicts."""
+def run_qualification(lab_profiles: list) -> tuple[list, list[str]]:
+    """Score and rank lab profiles. Returns (ranked_lead_dicts, parse_errors)."""
     import json
 
-    result = QualificationCrew().crew().kickoff(
-        inputs={"lab_profiles": json.dumps(lab_profiles)}
-    )
+    def _kickoff() -> str:
+        result = QualificationCrew().crew().kickoff(
+            inputs={"lab_profiles": json.dumps(lab_profiles)}
+        )
+        return result.raw or ""
 
-    raw = result.raw or ""
-    try:
-        # Try to find JSON in the output if it's wrapped in markdown
-        if "```json" in raw:
-            raw = raw.split("```json")[1].split("```")[0].strip()
-        elif "```" in raw:
-            raw = raw.split("```")[1].split("```")[0].strip()
-        
-        parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return parsed
-        if isinstance(parsed, dict) and len(parsed) == 1:
-            # Handle case where output is {"leads": [...]}
-            value = list(parsed.values())[0]
-            if isinstance(value, list):
-                return value
-        return []
-    except (json.JSONDecodeError, TypeError, IndexError):
-        return []
+    # Single-task, no-tools crew: a bounded retry on parse failure is cheap
+    parsed_result = parse_json_array(_kickoff(), context="qualification", retry_cb=_kickoff)
+    if parsed_result.failed:
+        return [], [parsed_result.error]
+    parsed = parsed_result.items
+
+    # Re-attach source_links — the LLM may have dropped them
+    links_index: dict[tuple, list] = {}
+    for p in lab_profiles:
+        key = (p.get("institution_name", ""), p.get("country", ""))
+        links_index[key] = p.get("source_links", [])
+
+    for lead in parsed:
+        if not lead.get("source_links"):
+            key = (lead.get("institution_name", ""), lead.get("country", ""))
+            lead["source_links"] = links_index.get(key, [])
+
+    return parsed, []

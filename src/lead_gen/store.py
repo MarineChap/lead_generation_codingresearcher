@@ -42,12 +42,33 @@ def _save(data: dict) -> None:
         json.dump(data, f, indent=2, default=str)
 
 
-def _lab_key(institution_name: str, country: str, pi_name: str) -> str:
-    """Build a stable, slug-like key for a lab across runs."""
-    parts = [(country or "").lower(), (institution_name or "").lower(), (pi_name or "").lower()]
-    slug = "-".join(parts)
+def _lab_key(
+    institution_name: str,
+    country: str,
+    pi_name: str,
+    department: str = "",
+    city: str = "",
+    pi_openalex_id: str = "",
+) -> str:
+    """Build a stable key for a lab across runs.
+
+    Uses pi_openalex_id as the sole key when available — it is globally unique
+    per researcher and survives institution name changes. Falls back to a slug
+    that includes department and city to distinguish labs within large umbrella
+    institutions (CNRS, Helmholtz, etc.).
+    """
+    if pi_openalex_id:
+        return f"openalex:{pi_openalex_id}"
+    parts = [
+        (country or "").lower(),
+        (institution_name or "").lower(),
+        (department or "").lower(),
+        (city or "").lower(),
+        (pi_name or "").lower(),
+    ]
+    slug = "-".join(p for p in parts if p)
     slug = re.sub(r"[^a-z0-9]+", "-", slug).strip("-")
-    return slug[:120]  # cap length
+    return slug[:150]
 
 
 # ---------------------------------------------------------------------------
@@ -73,13 +94,17 @@ def mark_papers_seen(paper_ids: list[str]) -> None:
 # Lab / lead deduplication
 # ---------------------------------------------------------------------------
 
-def is_lab_in_cooldown(institution_name: str, country: str, pi_name: str) -> bool:
-    """
-    Return True if this lab was already surfaced as a lead recently.
-    The cooldown period is settings.lab_cooldown_days.
-    """
+def is_lab_in_cooldown(
+    institution_name: str,
+    country: str,
+    pi_name: str,
+    department: str = "",
+    city: str = "",
+    pi_openalex_id: str = "",
+) -> bool:
+    """Return True if this lab was already surfaced as a lead recently."""
     data = _load()
-    key = _lab_key(institution_name, country, pi_name)
+    key = _lab_key(institution_name, country, pi_name, department, city, pi_openalex_id)
     entry = data["lab_leads"].get(key)
     if not entry:
         return False
@@ -89,21 +114,23 @@ def is_lab_in_cooldown(institution_name: str, country: str, pi_name: str) -> boo
 
 
 def should_resurface(
-    institution_name: str, country: str, pi_name: str, new_score: float
+    institution_name: str,
+    country: str,
+    pi_name: str,
+    new_score: float,
+    department: str = "",
+    city: str = "",
+    pi_openalex_id: str = "",
 ) -> bool:
-    """
-    Even during cooldown, allow re-surfacing a lab if a new signal is
-    significantly stronger than the last time (score >= threshold).
-    """
+    """Allow re-surfacing a lab if a new signal is significantly stronger."""
     data = _load()
-    key = _lab_key(institution_name, country, pi_name)
+    key = _lab_key(institution_name, country, pi_name, department, city, pi_openalex_id)
     entry = data["lab_leads"].get(key)
     if not entry:
         return True  # never seen — always surface
-    in_cooldown = is_lab_in_cooldown(institution_name, country, pi_name)
+    in_cooldown = is_lab_in_cooldown(institution_name, country, pi_name, department, city, pi_openalex_id)
     if not in_cooldown:
         return True  # cooldown expired — always surface
-    # In cooldown but score is exceptional — resurface anyway
     return new_score >= settings.resurfacing_score_threshold
 
 
@@ -113,10 +140,13 @@ def record_lead(
     pi_name: str,
     lead_id: str,
     score: float,
+    department: str = "",
+    city: str = "",
+    pi_openalex_id: str = "",
 ) -> None:
     """Persist a lab as a surfaced lead after it is included in a report."""
     data = _load()
-    key = _lab_key(institution_name, country, pi_name)
+    key = _lab_key(institution_name, country, pi_name, department, city, pi_openalex_id)
     existing = data["lab_leads"].get(key, {})
     data["lab_leads"][key] = {
         "last_lead_date": date.today().isoformat(),
@@ -124,6 +154,30 @@ def record_lead(
         "last_score": score,
         "times_surfaced": existing.get("times_surfaced", 0) + 1,
     }
+    _save(data)
+
+
+# ---------------------------------------------------------------------------
+# Suppression list — opt-outs are never contacted again (GDPR hygiene)
+# ---------------------------------------------------------------------------
+
+def is_email_suppressed(email: str) -> bool:
+    """Return True if this address opted out of outreach."""
+    if not email:
+        return False
+    data = _load()
+    suppressed = data.get("suppressed_emails", [])
+    return email.strip().lower() in suppressed
+
+
+def suppress_email(email: str) -> None:
+    """Add an address to the do-not-contact list."""
+    if not email:
+        return
+    data = _load()
+    suppressed = set(data.get("suppressed_emails", []))
+    suppressed.add(email.strip().lower())
+    data["suppressed_emails"] = sorted(suppressed)
     _save(data)
 
 

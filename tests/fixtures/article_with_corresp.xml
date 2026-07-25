@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<article xmlns:xlink="http://www.w3.org/1999/xlink" article-type="research-article">
+  <front>
+    <journal-meta>
+      <journal-title-group>
+        <journal-title>Journal of Computational Neuroscience Methods</journal-title>
+      </journal-title-group>
+    </journal-meta>
+    <article-meta>
+      <title-group>
+        <article-title>Scalable calcium imaging analysis in the mouse cortex</article-title>
+      </title-group>
+      <contrib-group>
+        <contrib contrib-type="author">
+          <name>
+            <surname>Dupont</surname>
+            <given-names>Claire</given-names>
+          </name>
+          <xref ref-type="corresp" rid="cor1">*</xref>
+        </contrib>
+        <contrib contrib-type="author" corresp="yes">
+          <name>
+            <surname>Meyer</surname>
+            <given-names>Johan</given-names>
+          </name>
+          <email>johan.meyer@uni-heidelberg.de</email>
+        </contrib>
+      </contrib-group>
+      <author-notes>
+        <corresp id="cor1">* Correspondence: <email>claire.dupont@pasteur.fr</email></corresp>
+      </author-notes>
+    </article-meta>
+  </front>
+  <body>
+    <sec sec-type="methods">
+      <title>Materials and Methods</title>
+      <p>Each recording session was processed individually because loading the
+      full dataset exceeded available RAM on our workstation. Custom scripts are
+      available upon request.</p>
+    </sec>
+  </body>
+  <back>
+    <ref-list>
+      <ref>
+        <mixed-citation>Smith J. Contact editor@journals.org for reprints.</mixed-citation>
+      </ref>
+    </ref-list>
+  </back>
+</article>

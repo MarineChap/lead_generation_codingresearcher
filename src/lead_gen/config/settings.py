@@ -87,6 +87,31 @@ class Settings(BaseSettings):
     weight_fit: float = Field(default=0.20, ge=0.0, le=1.0)
 
     # -------------------------------------------------------------------------
+    # Deterministic verification & contact extraction
+    # -------------------------------------------------------------------------
+    # thefuzz partial_ratio thresholds for evidence quotes vs. fetched full text
+    evidence_match_threshold: int = 88   # >= this → evidence_verified=True
+    evidence_reject_threshold: int = 60  # < this → signal dropped as fabricated
+    # Score multipliers applied in code after qualification
+    no_contact_score_multiplier: float = 0.6    # lead without a direct email
+    unverified_evidence_multiplier: float = 0.8  # evidence not matched verbatim
+    # Hiring signals (EURAXESS RSE/bioinformatician posts) are top-tier leads:
+    # enforce score floors so they never rank below weak paper signals
+    hiring_pain_floor: float = 7.0
+    hiring_timing_floor: float = 8.0
+    # Recently signed EU grant = fresh budget: bonus on budget_signal
+    recent_grant_boost_days: int = 365
+    recent_grant_budget_floor: float = 8.0
+    # A grant whose deliverable IS software = money earmarked for exactly what
+    # Marine does. It does NOT mean the lab has an RSE on staff — the funding is
+    # a weak-positive budget signal, not proof of capability. Modest floor.
+    software_grant_budget_floor: float = 6.0
+    # Lab-website email scraping is the most etiquette-sensitive source: opt-in
+    enable_website_scrape: bool = False
+    # Cap on EURAXESS job-detail pages fetched per run (for contact extraction)
+    max_contact_page_fetches: int = 10
+
+    # -------------------------------------------------------------------------
     # Target geography and fields (used in API queries)
     # -------------------------------------------------------------------------
     target_countries: list[str] = [

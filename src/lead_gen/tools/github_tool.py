@@ -121,17 +121,46 @@ def _get_with_retry(
 _SIX_MONTHS_SECONDS = 6 * 30 * 24 * 3600
 
 
+def _has_no_ci(full_name: str) -> bool:
+    """Return True when the repo has no CI/CD configuration.
+
+    Checks for GitHub Actions workflows (.github/workflows), .travis.yml, and
+    .circleci/config.yml via the contents API — a single cheap GET per path,
+    no code-search quota consumed.
+    """
+    cache_key = f"ci:{full_name}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    ci_paths = [
+        ".github/workflows",
+        ".travis.yml",
+        ".circleci/config.yml",
+    ]
+    for path in ci_paths:
+        resp = _get_with_retry(f"https://api.github.com/repos/{full_name}/contents/{path}")
+        if resp.status_code == 200:
+            _cache_set(cache_key, False)
+            return False
+
+    _cache_set(cache_key, True)
+    return True
+
+
 def _has_no_tests(full_name: str) -> bool:
     """
     Return True when the repo has no recognisable test files.
     Uses GitHub code search: looks for files named test_*.py or inside tests/.
+
+    Only called when a token is configured — unauthenticated code search burns
+    the 10 req/min budget in a single call.
     """
     cache_key = f"tests:{full_name}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
 
-    # Search for test files in the repo
     resp = _get_with_retry(
         "https://api.github.com/search/code",
         params={
@@ -159,12 +188,6 @@ def _is_notebook_heavy(repo: dict) -> bool:
     topics = repo.get("topics", [])
     return "jupyter" in desc or "notebook" in desc or "jupyter-notebook" in topics
 
-def _has_no_tests_simple(full_name: str) -> bool:
-    """Check for 'tests' in repo metadata or lightweight contents API if cached."""
-    return False # Skip expensive check for now
-
-
-# Skipping expensive file-based checks to stay within Rate limits
 
 
 def _is_stale_with_issues(repo: dict) -> bool:
@@ -224,15 +247,22 @@ def _detect_signals(repo: dict) -> tuple[list[str], float]:
     full_name = repo["full_name"]
     signals: list[str] = []
 
-    # Notebook heavy check (metatada-based)
+    # Metadata-based checks (no extra API calls)
     if _is_notebook_heavy(repo):
         signals.append("jupyter_heavy")
 
-    # Stale check
     if _is_stale_with_issues(repo):
         signals.append("stale_with_open_issues")
 
-    # Small team check (one API call)
+    # API-based checks (cached)
+    if _has_no_ci(full_name):
+        signals.append("no_ci")
+
+    # Code-search is expensive on the unauthenticated rate limit — only run
+    # it when a token is configured
+    if settings.github_token and _has_no_tests(full_name):
+        signals.append("no_tests")
+
     if _is_small_team(full_name):
         signals.append("small_team")
 
@@ -265,8 +295,8 @@ class GitHubLabSearchTool(BaseTool):
     name: str = "github_lab_search"
     description: str = (
         "Search GitHub for public repositories from European bio/neuro research labs "
-        "that exhibit technical debt signals (no tests, notebook-heavy code, outdated "
-        "packaging, no CI, stale but with open issues, small team). "
+        "that exhibit technical debt signals (notebook-heavy code, no CI, stale but "
+        "with open issues, small team, and — when a token is configured — no tests). "
         "Input: a query string (predefined key or raw GitHub search syntax) and "
         "optionally max_results. "
         "Predefined query keys: "

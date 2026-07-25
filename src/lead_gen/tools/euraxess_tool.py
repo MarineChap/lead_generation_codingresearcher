@@ -127,6 +127,9 @@ _COUNTRY_IDS: dict[str, str] = {
     "GB": "771",   # United Kingdom
 }
 
+# Email pattern for extracting application contacts from job descriptions.
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+
 # Browser-like headers to avoid 403 from WAF.
 _HEADERS = {
     "User-Agent": (
@@ -228,6 +231,10 @@ def _parse_job_cards(html: str) -> list[dict]:
         full_text = f"{title} {description}"
         tech_signals = _detect_tech_signals(full_text)
 
+        # --- Contact email (scan full description, not just the snippet) ---
+        email_match = _EMAIL_RE.search(description)
+        contact_email = email_match.group(0).rstrip(".;,") if email_match else ""
+
         if not title:
             continue
 
@@ -239,6 +246,7 @@ def _parse_job_cards(html: str) -> list[dict]:
             "url": url,
             "pub_date": pub_date,
             "tech_signals": tech_signals,
+            "contact_email": contact_email,
         })
 
     return jobs

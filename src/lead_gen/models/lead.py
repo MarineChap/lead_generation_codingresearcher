@@ -5,6 +5,7 @@ from .enums import Strategy, PainPointType, ServiceMatch
 from .lab import LabProfile
 
 
+
 class LeadScore(BaseModel):
     pain_intensity: float  # 0-10: how acute is the pain?
     budget_signal: float  # 0-10: active grants, funding?
@@ -19,22 +20,23 @@ class LeadScore(BaseModel):
     fit_justification: str = ""
 
 
-class OutreachAngle(BaseModel):
-    hook: str  # one sentence referencing their specific pain/work
-    service_pitch: str  # which CodingResearcher service and why
-    free_audit_offer: str  # specific codebase audit angle
-    email_draft: str  # full cold email, under 150 words, signed as Marine
-
-
 class LeadCard(BaseModel):
-    lead_id: str  # UUID
+    lead_id: str
     generated_date: date
     strategy: Strategy
     pain_points: list[PainPointType]
     lab: LabProfile
-    evidence_sources: list[str]  # paper IDs, GitHub URLs, CORDIS IDs
-    raw_evidence_snippets: list[str]  # exact quotes from source material
+    evidence_sources: list[str]
+    raw_evidence_snippets: list[str]
     service_match: ServiceMatch
     score: LeadScore
-    outreach: Optional[OutreachAngle] = None  # populated in outreach crew
-    rank: Optional[int] = None  # set after qualification ranking
+    rank: Optional[int] = None
+
+    # Deterministic post-processing fields (set in code, not by the LLM)
+    has_contact: bool = False
+    primary_contact_email: Optional[str] = None
+    primary_contact_name: Optional[str] = None
+    contact_source: Optional[str] = None
+    evidence_verified: bool = False
+    verification_notes: list[str] = []
+    reason_for_need: str = ""  # synthesized only from verified facts

@@ -1,7 +1,7 @@
 from .enums import Strategy, PainPointType, ServiceMatch
 from .paper import RawPaper, PaperSignal
-from .lab import PIProfile, LabProfile
-from .lead import LeadCard, LeadScore, OutreachAngle
+from .lab import Contact, PIProfile, LabProfile
+from .lead import LeadCard, LeadScore
 
 __all__ = [
     "Strategy",
@@ -9,9 +9,9 @@ __all__ = [
     "ServiceMatch",
     "RawPaper",
     "PaperSignal",
+    "Contact",
     "PIProfile",
     "LabProfile",
     "LeadCard",
     "LeadScore",
-    "OutreachAngle",
 ]

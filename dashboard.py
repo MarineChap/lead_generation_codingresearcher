@@ -4,8 +4,6 @@ Run:  python dashboard.py        (opens http://localhost:8050)
 """
 
 import json
-import os
-import sys
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -237,6 +235,12 @@ h1 span{color:var(--accent);font-style:italic}
 .tag.grant{color:var(--accent)}
 .tag.signal{color:#c090e0}
 .tag.hiring{color:#e0a0b0}
+.tag.contact{color:var(--accent);border:1px solid var(--accent-dim)}
+.tag.contact a{color:inherit;text-decoration:none}
+.tag.contact a:hover{text-decoration:underline}
+.tag.nocontact{color:var(--danger)}
+.tag.verified{color:var(--accent)}
+.tag.unverified{color:var(--orange)}
 
 /* score bar */
 .score-section{margin-bottom:1rem}
@@ -256,47 +260,31 @@ h1 span{color:var(--accent);font-style:italic}
 .detail-title{font-family:var(--mono);font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.3rem}
 .detail-text{font-size:.82rem;color:var(--text);line-height:1.5}
 
-/* outreach section */
-.outreach{
-  margin-top:1rem;padding-top:1rem;
-  border-top:1px solid var(--border);
-}
-.outreach-toggle{
-  font-family:var(--mono);font-size:.75rem;
-  color:var(--accent-dim);cursor:pointer;
-  background:none;border:none;
-  display:flex;align-items:center;gap:.3rem;
-  transition:color .2s;
-}
-.outreach-toggle:hover{color:var(--accent)}
-.outreach-toggle .arrow{transition:transform .2s;display:inline-block}
-.outreach-toggle.open .arrow{transform:rotate(90deg)}
-.outreach-body{
-  max-height:0;overflow:hidden;
-  transition:max-height .35s ease, padding .35s ease;
-}
-.outreach-body.open{max-height:600px;padding-top:.8rem}
-.outreach-field{margin-bottom:.7rem}
-.outreach-field-label{font-family:var(--mono);font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.05em;margin-bottom:.15rem}
-.outreach-field-text{font-size:.82rem;line-height:1.5;color:var(--text)}
-.email-block{
-  background:var(--surface2);
+
+/* sources section */
+.sources{margin-top:.9rem;padding-top:.9rem;border-top:1px solid var(--border)}
+.sources-title{font-family:var(--mono);font-size:.68rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.45rem}
+.source-links{display:flex;flex-wrap:wrap;gap:.4rem}
+.source-link{
+  font-family:var(--mono);font-size:.72rem;
+  padding:.2rem .6rem;border-radius:4px;
   border:1px solid var(--border);
-  border-radius:6px;
-  padding:.8rem 1rem;
-  font-size:.8rem;line-height:1.6;
-  color:var(--text);
-  white-space:pre-wrap;
-  position:relative;
+  display:inline-flex;align-items:center;gap:.3rem;
+  text-decoration:none;
+  transition:border-color .15s, color .15s;
+  white-space:nowrap;
 }
-.copy-btn{
-  position:absolute;top:.5rem;right:.5rem;
-  background:var(--surface);border:1px solid var(--border);
-  color:var(--text-dim);font-family:var(--mono);font-size:.65rem;
-  padding:.2rem .5rem;border-radius:4px;cursor:pointer;
-  transition:all .2s;
-}
-.copy-btn:hover{border-color:var(--accent-dim);color:var(--accent)}
+.source-link:hover{border-color:var(--border-hover)}
+.source-link.paper{color:#60c8a0;border-color:rgba(96,200,160,.25)}
+.source-link.paper:hover{border-color:rgba(96,200,160,.6)}
+.source-link.cordis{color:var(--accent);border-color:rgba(184,224,96,.25)}
+.source-link.cordis:hover{border-color:rgba(184,224,96,.6)}
+.source-link.euraxess{color:#60a8d0;border-color:rgba(96,168,208,.25)}
+.source-link.euraxess:hover{border-color:rgba(96,168,208,.6)}
+.source-link.github{color:#c090e0;border-color:rgba(192,144,224,.25)}
+.source-link.github:hover{border-color:rgba(192,144,224,.6)}
+.source-link.website{color:#7ab8d0;border-color:rgba(122,184,208,.25)}
+.source-link.website:hover{border-color:rgba(122,184,208,.6)}
 
 /* delete button */
 .delete-btn{
@@ -373,6 +361,27 @@ const SCORE_COLORS = {
   fit:'#d8a050',
 };
 
+const SOURCE_ICONS = {
+  paper: '📄',
+  cordis: '🇪🇺',
+  euraxess: '💼',
+  github: '⌥',
+  website: '🔗',
+};
+
+function renderSourceLinks(links) {
+  if (!links || links.length === 0) return '';
+  const items = links
+    .filter(l => l.url)
+    .map(l => {
+      const icon = SOURCE_ICONS[l.type] || '🔗';
+      const label = l.label.length > 50 ? l.label.slice(0, 48) + '…' : l.label;
+      return `<a class="source-link ${l.type}" href="${l.url}" target="_blank" rel="noopener" title="${l.label}">${icon} ${label}</a>`;
+    });
+  if (items.length === 0) return '';
+  return `<div class="sources"><div class="sources-title">Sources</div><div class="source-links">${items.join('')}</div></div>`;
+}
+
 function flag(code) {
   if (!code) return '';
   const cp = [...code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65);
@@ -433,7 +442,6 @@ function renderLeads(data) {
     const hiring = (lead.hiring_signals || []);
     const signals = (lead.source_signals || []);
     const pains = (lead.pain_points || []);
-    const o = lead.outreach || {};
 
     const card = document.createElement('div');
     card.className = 'card';
@@ -451,6 +459,12 @@ function renderLeads(data) {
         <div class="card-rank">#${lead.rank}</div>
       </div>
       <div class="meta">
+        ${lead.primary_contact_email
+          ? `<span class="tag contact">&#9993; <a href="mailto:${lead.primary_contact_email}">${lead.primary_contact_email}</a>${lead.contact_source ? ` (${lead.contact_source})` : ''}</span>`
+          : `<span class="tag nocontact">no direct contact</span>`}
+        ${lead.evidence_verified
+          ? `<span class="tag verified">&#10003; evidence verified</span>`
+          : `<span class="tag unverified">evidence unverified</span>`}
         ${loc ? `<span class="tag country"><span class="icon">${flag(lead.country)}</span>${loc}</span>` : ''}
         ${lead.service_match ? `<span class="tag service">${lead.service_match.replace(/_/g,' ')}</span>` : ''}
         ${grants.map(g => `<span class="tag grant">EU ${g}</span>`).join('')}
@@ -465,26 +479,12 @@ function renderLeads(data) {
         ${scoreBar('Timing', s.timing_signal||0, 10, SCORE_COLORS.timing)}
         ${scoreBar('Fit', s.fit_score||0, 10, SCORE_COLORS.fit)}
       </div>
+      ${lead.reason_for_need ? `<div class="detail-block"><div class="detail-title">Why they need an RSE (verified)</div><div class="detail-text">${lead.reason_for_need}</div></div>` : ''}
       ${s.pain_justification ? `<div class="detail-block"><div class="detail-title">Pain</div><div class="detail-text">${s.pain_justification}</div></div>` : ''}
       ${s.budget_justification ? `<div class="detail-block"><div class="detail-title">Budget</div><div class="detail-text">${s.budget_justification}</div></div>` : ''}
       ${s.timing_justification ? `<div class="detail-block"><div class="detail-title">Timing</div><div class="detail-text">${s.timing_justification}</div></div>` : ''}
       ${s.fit_justification ? `<div class="detail-block"><div class="detail-title">Fit</div><div class="detail-text">${s.fit_justification}</div></div>` : ''}
-      ${o.hook ? `
-      <div class="outreach">
-        <button class="outreach-toggle" onclick="toggleOutreach(this)">
-          <span class="arrow">&#9654;</span> Outreach
-        </button>
-        <div class="outreach-body">
-          <div class="outreach-field"><div class="outreach-field-label">Hook</div><div class="outreach-field-text">${o.hook}</div></div>
-          <div class="outreach-field"><div class="outreach-field-label">Pitch</div><div class="outreach-field-text">${o.service_pitch||''}</div></div>
-          <div class="outreach-field"><div class="outreach-field-label">Free Audit</div><div class="outreach-field-text">${o.free_audit_offer||''}</div></div>
-          ${o.email_draft ? `
-          <div class="outreach-field">
-            <div class="outreach-field-label">Email Draft</div>
-            <div class="email-block">${o.email_draft}<button class="copy-btn" onclick="copyEmail(this, event)">copy</button></div>
-          </div>` : ''}
-        </div>
-      </div>` : ''}
+      ${renderSourceLinks(lead.source_links)}
       <button class="delete-btn" onclick="askDelete('${lead.lead_id}')">&#10005; Remove lead</button>
     `;
     grid.appendChild(card);
@@ -503,11 +503,6 @@ function renderLeads(data) {
   );
 }
 
-function toggleOutreach(btn) {
-  btn.classList.toggle('open');
-  btn.nextElementSibling.classList.toggle('open');
-}
-
 function askDelete(id) {
   document.getElementById('confirm-' + id).classList.add('visible');
 }
@@ -517,14 +512,6 @@ async function doDelete(id) {
   card.classList.add('removing');
   await fetch(`/api/leads?date=${currentDate}&id=${id}`, { method: 'DELETE' });
   setTimeout(() => selectDate(currentDate), 400);
-}
-
-function copyEmail(btn, e) {
-  e.stopPropagation();
-  const text = btn.parentElement.textContent.replace('copy','').trim();
-  navigator.clipboard.writeText(text);
-  btn.textContent = 'copied!';
-  setTimeout(() => btn.textContent = 'copy', 1500);
 }
 
 init();

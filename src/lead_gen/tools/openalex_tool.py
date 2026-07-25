@@ -189,7 +189,7 @@ class OpenAlexWorkSearchTool(BaseTool):
             "openalex_id": work.get("id", ""),
             "title": work.get("title", ""),
             "publication_date": work.get("publication_date", ""),
-            "source": work.get("primary_location", {}).get("source", {}).get("display_name", ""),
+            "source": ((work.get("primary_location") or {}).get("source") or {}).get("display_name", ""),
             "authors": authors_out,
             "has_european_author": has_european_author,
             "european_author_count": sum(
@@ -340,7 +340,7 @@ class OpenAlexInstitutionTool(BaseTool):
         if cached:
             return json.dumps(cached)
 
-        select_fields = "id,display_name,ror,country_code,geo,type,works_count,associated_institutions"
+        select_fields = "id,display_name,ror,country_code,geo,type,works_count,homepage_url"
 
         if openalex_institution_id:
             clean_id = openalex_institution_id.split("/")[-1]
@@ -375,6 +375,7 @@ class OpenAlexInstitutionTool(BaseTool):
             "city": geo.get("city", ""),
             "type": inst.get("type", ""),  # education, facility, government, etc.
             "works_count": inst.get("works_count", 0),
+            "homepage_url": inst.get("homepage_url") or "",
         }
         _cache_set(cache_key, result)
         return json.dumps(result)
